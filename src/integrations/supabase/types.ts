@@ -14,7 +14,153 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      question_papers: {
+        Row: {
+          content: Json
+          created_at: string
+          difficulty: string
+          id: string
+          title: string
+          upload_id: string | null
+          user_id: string
+        }
+        Insert: {
+          content: Json
+          created_at?: string
+          difficulty?: string
+          id?: string
+          title: string
+          upload_id?: string | null
+          user_id: string
+        }
+        Update: {
+          content?: Json
+          created_at?: string
+          difficulty?: string
+          id?: string
+          title?: string
+          upload_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "question_papers_upload_id_fkey"
+            columns: ["upload_id"]
+            isOneToOne: false
+            referencedRelation: "uploads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      quiz_questions: {
+        Row: {
+          correct_answer: number
+          created_at: string
+          explanation: string | null
+          id: string
+          options: Json
+          question: string
+          upload_id: string | null
+          user_id: string
+        }
+        Insert: {
+          correct_answer: number
+          created_at?: string
+          explanation?: string | null
+          id?: string
+          options: Json
+          question: string
+          upload_id?: string | null
+          user_id: string
+        }
+        Update: {
+          correct_answer?: number
+          created_at?: string
+          explanation?: string | null
+          id?: string
+          options?: Json
+          question?: string
+          upload_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quiz_questions_upload_id_fkey"
+            columns: ["upload_id"]
+            isOneToOne: false
+            referencedRelation: "uploads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      uploads: {
+        Row: {
+          content: string
+          created_at: string
+          file_name: string
+          file_type: string
+          id: string
+          user_id: string
+        }
+        Insert: {
+          content: string
+          created_at?: string
+          file_name: string
+          file_type: string
+          id?: string
+          user_id: string
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          file_name?: string
+          file_type?: string
+          id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      video_sessions: {
+        Row: {
+          bey_agent_id: string | null
+          bey_session_url: string | null
+          created_at: string
+          id: string
+          status: string
+          updated_at: string
+          upload_id: string | null
+          user_id: string
+        }
+        Insert: {
+          bey_agent_id?: string | null
+          bey_session_url?: string | null
+          created_at?: string
+          id?: string
+          status?: string
+          updated_at?: string
+          upload_id?: string | null
+          user_id: string
+        }
+        Update: {
+          bey_agent_id?: string | null
+          bey_session_url?: string | null
+          created_at?: string
+          id?: string
+          status?: string
+          updated_at?: string
+          upload_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "video_sessions_upload_id_fkey"
+            columns: ["upload_id"]
+            isOneToOne: false
+            referencedRelation: "uploads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
