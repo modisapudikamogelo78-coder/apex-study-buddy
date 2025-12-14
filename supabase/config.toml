@@ -1,1 +1,10 @@
 project_id = "dqgorzqybqyhwaknpemz"
+
+[functions.create-video-session]
+verify_jwt = false
+
+[functions.generate-quiz]
+verify_jwt = false
+
+[functions.generate-paper]
+verify_jwt = false
