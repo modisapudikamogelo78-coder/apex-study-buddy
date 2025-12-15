@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
-import { Gamepad2, Loader2, Trophy, X, Check } from "lucide-react";
+import { Gamepad2, Loader2, Trophy, X, Check, Zap } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
@@ -24,10 +24,15 @@ export function QuizGame({ uploadId, content }: QuizGameProps) {
   const [questions, setQuestions] = useState<QuizQuestion[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [score, setScore] = useState(0);
+  const [streak, setStreak] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
   const [showResult, setShowResult] = useState(false);
   const [gameOver, setGameOver] = useState(false);
-  const [position, setPosition] = useState(1); // 0=left, 1=center, 2=right
+  const [runnerLane, setRunnerLane] = useState(1); // 0, 1, 2 for left, center, right
+  const [obstacleOffset, setObstacleOffset] = useState(0);
+  const [speed, setSpeed] = useState(2);
+  const [isRunning, setIsRunning] = useState(false);
+  const animationRef = useRef<number>();
   const { toast } = useToast();
   const { session } = useAuth();
 
@@ -55,10 +60,13 @@ export function QuizGame({ uploadId, content }: QuizGameProps) {
         setQuestions(data.questions);
         setCurrentIndex(0);
         setScore(0);
+        setStreak(0);
         setGameOver(false);
+        setIsRunning(true);
+        setSpeed(2);
         toast({
-          title: "Quiz ready!",
-          description: `${data.questions.length} questions generated from your notes.`,
+          title: "🏃 GO!",
+          description: "Use arrow keys or A/D to move, collect the correct answer!",
         });
       }
     } catch (error) {
@@ -73,59 +81,93 @@ export function QuizGame({ uploadId, content }: QuizGameProps) {
     }
   };
 
-  const handleAnswer = (index: number) => {
-    if (showResult) return;
-    
-    setSelectedAnswer(index);
-    setShowResult(true);
-
-    const isCorrect = index === currentQuestion.correct_answer;
-    if (isCorrect) {
-      setScore((s) => s + 100);
-    }
-
-    // Move to next question after delay
-    setTimeout(() => {
-      if (currentIndex < questions.length - 1) {
-        setCurrentIndex((i) => i + 1);
-        setSelectedAnswer(null);
-        setShowResult(false);
-        setPosition(1);
-      } else {
-        setGameOver(true);
-      }
-    }, 2000);
-  };
-
-  // Keyboard controls for the runner feel
+  // Animation loop for the running effect
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (!currentQuestion || showResult) return;
+    if (!isRunning || showResult) return;
 
-      if (e.key === "ArrowLeft" || e.key === "a") {
-        setPosition((p) => Math.max(0, p - 1));
-      } else if (e.key === "ArrowRight" || e.key === "d") {
-        setPosition((p) => Math.min(2, p + 1));
-      } else if (e.key === "1") handleAnswer(0);
-      else if (e.key === "2") handleAnswer(1);
-      else if (e.key === "3") handleAnswer(2);
-      else if (e.key === "4") handleAnswer(3);
+    const animate = () => {
+      setObstacleOffset((prev) => {
+        const newOffset = prev + speed;
+        return newOffset > 100 ? 0 : newOffset;
+      });
+      animationRef.current = requestAnimationFrame(animate);
+    };
+
+    animationRef.current = requestAnimationFrame(animate);
+    return () => {
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+      }
+    };
+  }, [isRunning, showResult, speed]);
+
+  const handleLaneCollision = useCallback((lane: number) => {
+    if (showResult || !currentQuestion) return;
+
+    // Check which answer option is in this lane
+    const optionIndex = lane; // Lane 0 = option 0/1, lane 1 = option 1/2, lane 2 = option 2/3
+    // Map 3 lanes to 4 options: left = 0, center-left = 1, center-right = 2, right = 3
+    // Simplified: just use first 3 options for 3 lanes
+    const mappedIndex = lane;
+
+    if (mappedIndex < currentQuestion.options.length) {
+      setSelectedAnswer(mappedIndex);
+      setShowResult(true);
+
+      const isCorrect = mappedIndex === currentQuestion.correct_answer;
+      if (isCorrect) {
+        const bonus = streak >= 3 ? 50 : 0;
+        setScore((s) => s + 100 + bonus);
+        setStreak((s) => s + 1);
+        setSpeed((s) => Math.min(s + 0.2, 5));
+      } else {
+        setStreak(0);
+        setSpeed((s) => Math.max(s - 0.3, 1.5));
+      }
+
+      setTimeout(() => {
+        if (currentIndex < questions.length - 1) {
+          setCurrentIndex((i) => i + 1);
+          setSelectedAnswer(null);
+          setShowResult(false);
+          setObstacleOffset(0);
+        } else {
+          setGameOver(true);
+          setIsRunning(false);
+        }
+      }, 1500);
+    }
+  }, [showResult, currentQuestion, currentIndex, questions.length, streak]);
+
+  // Keyboard controls
+  useEffect(() => {
+    if (!isRunning) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "ArrowLeft" || e.key === "a" || e.key === "A") {
+        setRunnerLane((p) => Math.max(0, p - 1));
+      } else if (e.key === "ArrowRight" || e.key === "d" || e.key === "D") {
+        setRunnerLane((p) => Math.min(2, p + 1));
+      } else if (e.key === " " || e.key === "Enter") {
+        // Collect answer in current lane
+        handleLaneCollision(runnerLane);
+      }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [currentQuestion, showResult]);
+  }, [isRunning, runnerLane, handleLaneCollision]);
 
   if (questions.length === 0) {
     return (
       <div className="text-center py-12 space-y-4">
-        <div className="w-20 h-20 mx-auto rounded-full bg-accent/10 flex items-center justify-center">
+        <div className="w-20 h-20 mx-auto rounded-full bg-accent/10 flex items-center justify-center animate-pulse">
           <Gamepad2 className="w-10 h-10 text-accent" />
         </div>
         <h3 className="font-display text-xl font-semibold">Runner Quiz Game</h3>
         <p className="text-muted-foreground max-w-md mx-auto">
-          Play an endless runner-style quiz game! Answer questions while racing
-          to test your knowledge through active recall.
+          Race through questions! Use arrow keys to switch lanes and collect the
+          correct answers. Build streaks for bonus points!
         </p>
         <Button
           onClick={generateQuiz}
@@ -141,7 +183,7 @@ export function QuizGame({ uploadId, content }: QuizGameProps) {
           ) : (
             <>
               <Gamepad2 className="w-4 h-4 mr-2" />
-              Start Quiz Game
+              Start Running!
             </>
           )}
         </Button>
@@ -150,111 +192,186 @@ export function QuizGame({ uploadId, content }: QuizGameProps) {
   }
 
   if (gameOver) {
+    const percentage = Math.round((score / (questions.length * 100)) * 100);
     return (
       <div className="text-center py-12 space-y-6">
-        <div className="w-24 h-24 mx-auto rounded-full bg-gradient-to-br from-yellow-400 to-amber-600 flex items-center justify-center animate-bounce-subtle">
+        <div className="w-24 h-24 mx-auto rounded-full bg-gradient-to-br from-yellow-400 to-amber-600 flex items-center justify-center animate-bounce">
           <Trophy className="w-12 h-12 text-white" />
         </div>
-        <h3 className="font-display text-3xl font-bold">Game Over!</h3>
+        <h3 className="font-display text-3xl font-bold">Finish Line!</h3>
         <div className="text-6xl font-display font-bold text-gradient-primary">
           {score}
         </div>
         <p className="text-muted-foreground">
-          You scored {score} points out of {questions.length * 100} possible!
+          {percentage >= 80 ? "🔥 Amazing run!" : percentage >= 50 ? "👍 Good effort!" : "💪 Keep practicing!"}
+        </p>
+        <p className="text-sm text-muted-foreground">
+          {score} points out of {questions.length * 100} possible
         </p>
         <Button onClick={() => { setQuestions([]); }} variant="outline">
-          Play Again
+          Run Again
         </Button>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
-      {/* Score and progress */}
-      <div className="flex justify-between items-center">
-        <div className="font-display text-2xl font-bold text-gradient-primary">
-          {score}
+    <div className="space-y-4">
+      {/* HUD */}
+      <div className="flex justify-between items-center px-2">
+        <div className="flex items-center gap-4">
+          <div className="font-display text-2xl font-bold text-gradient-primary">
+            {score}
+          </div>
+          {streak >= 2 && (
+            <div className="flex items-center gap-1 text-accent animate-pulse">
+              <Zap className="w-4 h-4" />
+              <span className="text-sm font-bold">x{streak}</span>
+            </div>
+          )}
         </div>
-        <div className="text-muted-foreground">
-          {currentIndex + 1} / {questions.length}
+        <div className="text-muted-foreground text-sm">
+          Q{currentIndex + 1}/{questions.length}
         </div>
       </div>
 
-      {/* Game area */}
-      <div className="relative bg-gradient-to-b from-background to-muted/20 rounded-xl p-6 min-h-[400px] overflow-hidden border border-border/50">
-        {/* Animated background lanes */}
-        <div className="absolute inset-0 flex">
-          {[0, 1, 2].map((lane) => (
+      {/* Question */}
+      <div className="bg-card/80 backdrop-blur rounded-lg p-3 border border-border/50">
+        <h3 className="font-display text-lg font-semibold text-center">
+          {currentQuestion.question}
+        </h3>
+      </div>
+
+      {/* Game Track */}
+      <div className="relative h-[320px] rounded-xl overflow-hidden border border-border/50 bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900">
+        {/* Road lines animation */}
+        <div className="absolute inset-0 overflow-hidden">
+          {[...Array(8)].map((_, i) => (
             <div
-              key={lane}
-              className={cn(
-                "flex-1 border-x border-border/20",
-                position === lane && "bg-primary/5"
-              )}
+              key={i}
+              className="absolute left-1/2 w-2 h-8 bg-yellow-500/60 rounded"
+              style={{
+                transform: `translateX(-50%)`,
+                top: `${((i * 50 + obstacleOffset * 4) % 400) - 50}px`,
+                opacity: 0.6,
+              }}
             />
           ))}
         </div>
 
-        {/* Question */}
-        <div className="relative z-10 text-center mb-8">
-          <h3 className="font-display text-xl font-semibold mb-2">
-            {currentQuestion.question}
-          </h3>
+        {/* Lane dividers */}
+        <div className="absolute inset-0 flex">
+          <div className="flex-1 border-r border-white/10" />
+          <div className="flex-1 border-r border-white/10" />
+          <div className="flex-1" />
         </div>
 
-        {/* Answer options */}
-        <div className="relative z-10 grid grid-cols-2 gap-3 max-w-lg mx-auto">
-          {currentQuestion.options.map((option, index) => {
+        {/* Answer obstacles coming toward player */}
+        <div 
+          className="absolute left-0 right-0 flex gap-2 px-2 transition-all duration-100"
+          style={{ 
+            top: `${Math.min(obstacleOffset * 2.5, 180)}px`,
+            opacity: obstacleOffset > 10 ? 1 : 0,
+          }}
+        >
+          {currentQuestion.options.slice(0, 3).map((option, index) => {
             const isCorrect = index === currentQuestion.correct_answer;
             const isSelected = selectedAnswer === index;
 
             return (
-              <button
+              <div
                 key={index}
-                onClick={() => handleAnswer(index)}
-                disabled={showResult}
+                onClick={() => handleLaneCollision(index)}
                 className={cn(
-                  "p-4 rounded-lg text-left transition-all duration-200 border",
-                  "hover:scale-[1.02] active:scale-[0.98]",
+                  "flex-1 p-3 rounded-lg cursor-pointer transition-all text-center",
+                  "transform hover:scale-105",
                   showResult
                     ? isCorrect
-                      ? "bg-green-500/20 border-green-500 text-green-400"
+                      ? "bg-green-500/90 text-white ring-2 ring-green-400"
                       : isSelected
-                      ? "bg-red-500/20 border-red-500 text-red-400"
-                      : "bg-muted/50 border-border/50 opacity-50"
-                    : "bg-card border-border/50 hover:border-primary/50 hover:bg-primary/5"
+                      ? "bg-red-500/90 text-white ring-2 ring-red-400"
+                      : "bg-slate-700/80 text-slate-400"
+                    : "bg-primary/80 hover:bg-primary text-primary-foreground"
                 )}
               >
-                <div className="flex items-start gap-3">
-                  <span className="w-6 h-6 rounded-full bg-primary/20 text-primary flex items-center justify-center text-sm font-bold shrink-0">
-                    {index + 1}
-                  </span>
-                  <span className="text-sm">{option}</span>
-                  {showResult && isCorrect && (
-                    <Check className="w-5 h-5 text-green-500 shrink-0 ml-auto" />
-                  )}
-                  {showResult && isSelected && !isCorrect && (
-                    <X className="w-5 h-5 text-red-500 shrink-0 ml-auto" />
-                  )}
-                </div>
-              </button>
+                <span className="text-xs font-medium line-clamp-2">{option}</span>
+                {showResult && isCorrect && <Check className="w-4 h-4 mx-auto mt-1" />}
+                {showResult && isSelected && !isCorrect && <X className="w-4 h-4 mx-auto mt-1" />}
+              </div>
             );
           })}
         </div>
 
-        {/* Explanation */}
-        {showResult && (
-          <div className="relative z-10 mt-6 p-4 bg-muted/50 rounded-lg border border-border/50">
-            <p className="text-sm text-muted-foreground">
-              <strong>Explanation:</strong> {currentQuestion.explanation}
-            </p>
+        {/* Runner character */}
+        <div
+          className="absolute bottom-8 transition-all duration-150 ease-out"
+          style={{
+            left: `${runnerLane * 33.33 + 16.66}%`,
+            transform: "translateX(-50%)",
+          }}
+        >
+          <div className={cn(
+            "w-12 h-16 rounded-lg flex flex-col items-center justify-center",
+            "bg-gradient-to-b from-accent to-accent/80 shadow-lg shadow-accent/40",
+            isRunning && !showResult && "animate-bounce"
+          )}>
+            <div className="w-6 h-6 rounded-full bg-white/90 mb-1" />
+            <div className="w-8 h-6 rounded-t-lg bg-white/20" />
+          </div>
+          {/* Speed trail */}
+          <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 flex gap-0.5">
+            {[...Array(3)].map((_, i) => (
+              <div 
+                key={i} 
+                className="w-1 bg-accent/40 rounded animate-pulse"
+                style={{ height: `${12 - i * 3}px`, animationDelay: `${i * 100}ms` }}
+              />
+            ))}
+          </div>
+        </div>
+
+        {/* Fourth option at bottom if exists */}
+        {currentQuestion.options.length > 3 && (
+          <div 
+            className="absolute bottom-24 left-1/2 -translate-x-1/2"
+            style={{ 
+              opacity: obstacleOffset > 30 ? 1 : 0,
+            }}
+          >
+            <div
+              onClick={() => {
+                setRunnerLane(1);
+                setTimeout(() => handleLaneCollision(3), 100);
+              }}
+              className={cn(
+                "px-4 py-2 rounded-lg cursor-pointer transition-all text-center",
+                showResult
+                  ? currentQuestion.correct_answer === 3
+                    ? "bg-green-500/90 text-white"
+                    : selectedAnswer === 3
+                    ? "bg-red-500/90 text-white"
+                    : "bg-slate-700/80 text-slate-400"
+                  : "bg-secondary/80 hover:bg-secondary text-secondary-foreground"
+              )}
+            >
+              <span className="text-xs font-medium">{currentQuestion.options[3]}</span>
+            </div>
           </div>
         )}
       </div>
 
+      {/* Explanation */}
+      {showResult && (
+        <div className="p-3 bg-muted/50 rounded-lg border border-border/50 animate-in fade-in slide-in-from-bottom-2">
+          <p className="text-sm text-muted-foreground">
+            <strong className="text-foreground">💡</strong> {currentQuestion.explanation}
+          </p>
+        </div>
+      )}
+
+      {/* Controls hint */}
       <p className="text-xs text-center text-muted-foreground">
-        Use keys 1-4 to quickly select answers
+        ← → or A/D to move • Space/Enter to collect • Click answers directly
       </p>
     </div>
   );
