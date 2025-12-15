@@ -81,7 +81,32 @@ serve(async (req) => {
     const aiData = await aiResponse.json();
     const podcastPrompt = aiData.choices?.[0]?.message?.content || content;
 
-    console.log("Generated podcast prompt, creating Beyond Presence agent...");
+    console.log("Generated podcast prompt, fetching available avatars...");
+
+    // First, fetch available avatars from Beyond Presence
+    const avatarsResponse = await fetch("https://api.bey.dev/v1/avatars", {
+      method: "GET",
+      headers: {
+        "x-api-key": BEYOND_PRESENCE_API_KEY,
+      },
+    });
+
+    if (!avatarsResponse.ok) {
+      const errorText = await avatarsResponse.text();
+      console.error("Failed to fetch avatars:", errorText);
+      throw new Error("Failed to fetch available avatars");
+    }
+
+    const avatarsData = await avatarsResponse.json();
+    console.log("Available avatars:", JSON.stringify(avatarsData).substring(0, 200));
+    
+    // Use the first available avatar
+    const avatarId = avatarsData?.data?.[0]?.id || avatarsData?.[0]?.id;
+    if (!avatarId) {
+      throw new Error("No avatars available in your Beyond Presence account");
+    }
+    
+    console.log("Using avatar:", avatarId);
 
     // Create a Beyond Presence agent with the podcast prompt
     const agentResponse = await fetch("https://api.bey.dev/v1/agents", {
@@ -92,7 +117,7 @@ serve(async (req) => {
       },
       body: JSON.stringify({
         name: `Apex Study Session - ${new Date().toISOString()}`,
-        description: "An interactive study session host that explains your notes",
+        avatar_id: avatarId,
         system_prompt: `You are an engaging educational podcast host named Apex. You're explaining study material to a student who uploaded their notes.
 
 ${podcastPrompt}
@@ -105,6 +130,7 @@ Guidelines:
 - Break down complex topics into digestible parts
 - Be enthusiastic about learning!`,
         greeting: "Hey there! I'm Apex, your study buddy. I've gone through your notes and I'm ready to help you understand everything. What would you like to start with, or should I give you an overview?",
+        language: "en",
       }),
     });
 
