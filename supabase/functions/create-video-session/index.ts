@@ -6,13 +6,54 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// UUID validation regex
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+// Validation helper functions
+function validateUUID(value: unknown, fieldName: string): string {
+  if (typeof value !== "string" || !UUID_REGEX.test(value)) {
+    throw new Error(`${fieldName} must be a valid UUID`);
+  }
+  return value;
+}
+
+function validateString(value: unknown, fieldName: string, minLen: number, maxLen: number): string {
+  if (typeof value !== "string") {
+    throw new Error(`${fieldName} must be a string`);
+  }
+  const trimmed = value.trim();
+  if (trimmed.length < minLen) {
+    throw new Error(`${fieldName} must be at least ${minLen} characters`);
+  }
+  if (trimmed.length > maxLen) {
+    throw new Error(`${fieldName} must be at most ${maxLen} characters`);
+  }
+  return trimmed;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const { uploadId, content } = await req.json();
+    const body = await req.json();
+    
+    // Input validation
+    let uploadId: string;
+    let content: string;
+    
+    try {
+      uploadId = validateUUID(body.uploadId, "uploadId");
+      content = validateString(body.content, "content", 1, 51200); // Max 50KB
+    } catch (validationError) {
+      return new Response(JSON.stringify({ 
+        error: validationError instanceof Error ? validationError.message : "Validation error" 
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
     
     const BEYOND_PRESENCE_API_KEY = Deno.env.get("BEYOND_PRESENCE_API_KEY");
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
@@ -41,6 +82,21 @@ serve(async (req) => {
     if (userError || !user) {
       return new Response(JSON.stringify({ error: "Invalid token" }), {
         status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Verify uploadId belongs to the authenticated user
+    const { data: upload, error: uploadError } = await supabase
+      .from("uploads")
+      .select("id")
+      .eq("id", uploadId)
+      .eq("user_id", user.id)
+      .single();
+
+    if (uploadError || !upload) {
+      return new Response(JSON.stringify({ error: "Upload not found or access denied" }), {
+        status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }

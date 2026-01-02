@@ -6,13 +6,64 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// UUID validation regex
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+// Validation helper functions
+function validateUUID(value: unknown, fieldName: string): string {
+  if (typeof value !== "string" || !UUID_REGEX.test(value)) {
+    throw new Error(`${fieldName} must be a valid UUID`);
+  }
+  return value;
+}
+
+function validateString(value: unknown, fieldName: string, minLen: number, maxLen: number): string {
+  if (typeof value !== "string") {
+    throw new Error(`${fieldName} must be a string`);
+  }
+  const trimmed = value.trim();
+  if (trimmed.length < minLen) {
+    throw new Error(`${fieldName} must be at least ${minLen} characters`);
+  }
+  if (trimmed.length > maxLen) {
+    throw new Error(`${fieldName} must be at most ${maxLen} characters`);
+  }
+  return trimmed;
+}
+
+function validateCount(value: unknown): number {
+  const num = typeof value === "number" ? value : parseInt(String(value), 10);
+  if (isNaN(num) || num < 1 || num > 20) {
+    throw new Error("count must be a number between 1 and 20");
+  }
+  return num;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const { uploadId, content, count = 10 } = await req.json();
+    const body = await req.json();
+    
+    // Input validation
+    let uploadId: string;
+    let content: string;
+    let count: number;
+    
+    try {
+      uploadId = validateUUID(body.uploadId, "uploadId");
+      content = validateString(body.content, "content", 1, 51200); // Max 50KB
+      count = body.count !== undefined ? validateCount(body.count) : 10;
+    } catch (validationError) {
+      return new Response(JSON.stringify({ 
+        error: validationError instanceof Error ? validationError.message : "Validation error" 
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
     
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
@@ -42,7 +93,22 @@ serve(async (req) => {
       });
     }
 
-    console.log("Generating quiz for user:", user.id);
+    // Verify uploadId belongs to the authenticated user
+    const { data: upload, error: uploadError } = await supabase
+      .from("uploads")
+      .select("id")
+      .eq("id", uploadId)
+      .eq("user_id", user.id)
+      .single();
+
+    if (uploadError || !upload) {
+      return new Response(JSON.stringify({ error: "Upload not found or access denied" }), {
+        status: 403,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    console.log("Generating quiz for user:", user.id, "count:", count);
 
     // Generate quiz questions using AI with tool calling
     const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
@@ -116,11 +182,18 @@ serve(async (req) => {
         });
       }
       
+      if (aiResponse.status === 402) {
+        return new Response(JSON.stringify({ error: "Payment required. Please add funds to continue." }), {
+          status: 402,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      
       throw new Error("Failed to generate quiz questions");
     }
 
     const aiData = await aiResponse.json();
-    console.log("AI response:", JSON.stringify(aiData, null, 2));
+    console.log("AI response received");
 
     const toolCall = aiData.choices?.[0]?.message?.tool_calls?.[0];
     if (!toolCall) {
