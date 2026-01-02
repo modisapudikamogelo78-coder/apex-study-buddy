@@ -6,13 +6,67 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// UUID validation regex
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+// Valid difficulty levels
+const VALID_DIFFICULTIES = ["easy", "medium", "hard"] as const;
+type Difficulty = typeof VALID_DIFFICULTIES[number];
+
+// Validation helper functions
+function validateUUID(value: unknown, fieldName: string): string {
+  if (typeof value !== "string" || !UUID_REGEX.test(value)) {
+    throw new Error(`${fieldName} must be a valid UUID`);
+  }
+  return value;
+}
+
+function validateString(value: unknown, fieldName: string, minLen: number, maxLen: number): string {
+  if (typeof value !== "string") {
+    throw new Error(`${fieldName} must be a string`);
+  }
+  const trimmed = value.trim();
+  if (trimmed.length < minLen) {
+    throw new Error(`${fieldName} must be at least ${minLen} characters`);
+  }
+  if (trimmed.length > maxLen) {
+    throw new Error(`${fieldName} must be at most ${maxLen} characters`);
+  }
+  return trimmed;
+}
+
+function validateDifficulty(value: unknown): Difficulty {
+  if (typeof value !== "string" || !VALID_DIFFICULTIES.includes(value as Difficulty)) {
+    throw new Error(`difficulty must be one of: ${VALID_DIFFICULTIES.join(", ")}`);
+  }
+  return value as Difficulty;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const { uploadId, content, difficulty = "medium" } = await req.json();
+    const body = await req.json();
+    
+    // Input validation
+    let uploadId: string;
+    let content: string;
+    let difficulty: Difficulty;
+    
+    try {
+      uploadId = validateUUID(body.uploadId, "uploadId");
+      content = validateString(body.content, "content", 1, 51200); // Max 50KB
+      difficulty = body.difficulty !== undefined ? validateDifficulty(body.difficulty) : "medium";
+    } catch (validationError) {
+      return new Response(JSON.stringify({ 
+        error: validationError instanceof Error ? validationError.message : "Validation error" 
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
     
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
@@ -38,6 +92,21 @@ serve(async (req) => {
     if (userError || !user) {
       return new Response(JSON.stringify({ error: "Invalid token" }), {
         status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Verify uploadId belongs to the authenticated user
+    const { data: upload, error: uploadError } = await supabase
+      .from("uploads")
+      .select("id")
+      .eq("id", uploadId)
+      .eq("user_id", user.id)
+      .single();
+
+    if (uploadError || !upload) {
+      return new Response(JSON.stringify({ error: "Upload not found or access denied" }), {
+        status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -122,6 +191,13 @@ serve(async (req) => {
       if (aiResponse.status === 429) {
         return new Response(JSON.stringify({ error: "Rate limit exceeded. Please try again later." }), {
           status: 429,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      
+      if (aiResponse.status === 402) {
+        return new Response(JSON.stringify({ error: "Payment required. Please add funds to continue." }), {
+          status: 402,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
