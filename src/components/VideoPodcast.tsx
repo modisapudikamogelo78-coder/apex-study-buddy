@@ -29,8 +29,13 @@ export function VideoPodcast({ uploadId, content, onSessionCreated }: VideoPodca
 
     setLoading(true);
     try {
+      // Truncate content to stay within the 51200 character limit
+      const truncatedContent = content.length > 50000 
+        ? content.substring(0, 50000) + "\n\n[Content truncated for processing...]"
+        : content;
+
       const { data, error } = await supabase.functions.invoke("create-video-session", {
-        body: { uploadId, content },
+        body: { uploadId, content: truncatedContent },
       });
 
       if (error) throw error;
