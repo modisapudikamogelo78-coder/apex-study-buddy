@@ -67,7 +67,8 @@ export function VideoPodcast({ uploadId, content, onSessionCreated }: VideoPodca
           <iframe
             src={sessionUrl}
             className="absolute inset-0 w-full h-full"
-            allow="camera; microphone; autoplay"
+            allow="camera *; microphone *; autoplay *; display-capture *; fullscreen *"
+            allowFullScreen
             title="Video Podcast Session"
           />
         </div>
