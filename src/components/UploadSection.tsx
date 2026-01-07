@@ -62,23 +62,47 @@ export const UploadSection = ({ onUploadComplete }: UploadSectionProps) => {
     setFile(null);
   };
 
-  const readFileContent = async (file: File): Promise<string> => {
+  const fileToBase64 = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
-      reader.onload = (e) => {
-        const content = e.target?.result as string;
-        resolve(content);
+      reader.onload = () => {
+        const result = reader.result as string;
+        // Remove the data URL prefix (e.g., "data:application/pdf;base64,")
+        const base64 = result.split(',')[1];
+        resolve(base64);
       };
       reader.onerror = reject;
-      
-      if (file.type === "text/plain") {
-        reader.readAsText(file);
-      } else {
-        // For PDF, we'll just read as text for now
-        // In production, you'd want to use a PDF parser
-        reader.readAsText(file);
-      }
+      reader.readAsDataURL(file);
     });
+  };
+
+  const readFileContent = async (file: File): Promise<string> => {
+    if (file.type === "text/plain") {
+      // Text files can be read directly
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => resolve(e.target?.result as string);
+        reader.onerror = reject;
+        reader.readAsText(file);
+      });
+    }
+
+    // For PDF files, use the edge function to extract text
+    const base64Content = await fileToBase64(file);
+    
+    const { data, error } = await supabase.functions.invoke('parse-pdf', {
+      body: { base64Content, fileName: file.name }
+    });
+
+    if (error) {
+      throw new Error(`Failed to parse PDF: ${error.message}`);
+    }
+
+    if (data.error) {
+      throw new Error(data.error);
+    }
+
+    return data.content;
   };
 
   const handleProcess = async () => {
