@@ -28,6 +28,9 @@ export const Navbar = () => {
             <a href="#features" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
               Features
             </a>
+            <a href="/pitch" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+              Pitch Deck
+            </a>
           </div>
 
           {/* CTA / User menu */}
