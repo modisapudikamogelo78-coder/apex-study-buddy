@@ -1,0 +1,79 @@
+@media print {
+  /* Hide navigation elements */
+  nav,
+  .no-print,
+  button {
+    display: none !important;
+  }
+
+  /* Reset backgrounds for print */
+  body {
+    background: white !important;
+    color: black !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Each slide on its own page */
+  section {
+    page-break-after: always;
+    page-break-inside: avoid;
+    min-height: 100vh !important;
+    height: 100vh !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 2rem !important;
+    background: white !important;
+  }
+
+  section:last-child {
+    page-break-after: auto;
+  }
+
+  /* Preserve gradients and colors */
+  .bg-gradient-primary,
+  .bg-gradient-to-br,
+  .bg-gradient-to-b,
+  [class*="bg-gradient"] {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Make text readable in print */
+  h1, h2, h3, h4, h5, h6 {
+    color: black !important;
+  }
+
+  p, span, div {
+    color: #333 !important;
+  }
+
+  .text-muted-foreground {
+    color: #666 !important;
+  }
+
+  /* Cards and borders */
+  .rounded-2xl,
+  .rounded-xl {
+    border: 1px solid #ddd !important;
+  }
+
+  /* Remove animations */
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  /* Adjust blur effects */
+  [class*="blur"] {
+    filter: none !important;
+    opacity: 0.3 !important;
+  }
+
+  /* Page setup */
+  @page {
+    size: landscape;
+    margin: 0;
+  }
+}

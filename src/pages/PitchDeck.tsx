@@ -1,7 +1,8 @@
 import { useEffect, useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, ArrowUp, ArrowDown, Sparkles, Upload, Brain, Video, Gamepad2, Target, Lightbulb, Globe, Rocket, Users, ChevronRight } from "lucide-react";
+import { ArrowLeft, ArrowUp, ArrowDown, Sparkles, Upload, Brain, Video, Gamepad2, Target, Lightbulb, Globe, Rocket, Users, ChevronRight, Download } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import "@/styles/print.css";
 
 const slides = [
   { id: "title", label: "Title" },
@@ -69,21 +70,36 @@ const PitchDeck = () => {
     return () => observer.disconnect();
   }, []);
 
+  const handleExportPDF = () => {
+    window.print();
+  };
+
   return (
     <div className="relative">
       {/* Back button */}
       <Button
         variant="ghost"
         size="sm"
-        className="fixed top-6 left-6 z-50 bg-background/80 backdrop-blur-sm"
+        className="fixed top-6 left-6 z-50 bg-background/80 backdrop-blur-sm no-print"
         onClick={() => navigate("/")}
       >
         <ArrowLeft className="w-4 h-4 mr-2" />
         Back
       </Button>
 
+      {/* Export PDF button */}
+      <Button
+        variant="outline"
+        size="sm"
+        className="fixed top-6 left-28 z-50 bg-background/80 backdrop-blur-sm no-print"
+        onClick={handleExportPDF}
+      >
+        <Download className="w-4 h-4 mr-2" />
+        Export PDF
+      </Button>
+
       {/* Navigation dots */}
-      <nav className="fixed right-6 top-1/2 -translate-y-1/2 z-50 hidden md:flex flex-col gap-2">
+      <nav className="fixed right-6 top-1/2 -translate-y-1/2 z-50 hidden md:flex flex-col gap-2 no-print">
         {slides.map((slide, index) => (
           <button
             key={slide.id}
@@ -109,7 +125,7 @@ const PitchDeck = () => {
       </nav>
 
       {/* Arrow navigation */}
-      <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-2">
+      <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-2 no-print">
         <Button
           variant="outline"
           size="icon"
