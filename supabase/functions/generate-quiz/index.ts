@@ -149,12 +149,13 @@ serve(async (req) => {
                         options: {
                           type: "array",
                           items: { type: "string" },
-                          minItems: 4,
-                          maxItems: 4
+                          minItems: 3,
+                          maxItems: 3,
+                          description: "Exactly 3 short answer options (under 8 words each)"
                         },
                         correctAnswer: { 
                           type: "integer",
-                          description: "Index of the correct answer (0-3)"
+                          description: "Index of the correct answer (0-2)"
                         },
                         explanation: { type: "string" }
                       },
