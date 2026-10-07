@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
-import { Gamepad2, Loader2, Trophy, X, Check, Zap } from "lucide-react";
+import { Gamepad2, Loader2, Trophy, Zap, Heart, ChevronLeft, ChevronRight } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
@@ -19,61 +19,55 @@ interface QuizGameProps {
   content: string;
 }
 
+const LANES = 4;
+const RUNNER_Y = 82; // % from top where the runner stands
+const START_LIVES = 3;
+
+type Phase = "idle" | "countdown" | "running" | "result" | "over";
+
 export function QuizGame({ uploadId, content }: QuizGameProps) {
   const [loading, setLoading] = useState(false);
   const [questions, setQuestions] = useState<QuizQuestion[]>([]);
-  const [currentIndex, setCurrentIndex] = useState(0);
+  const [index, setIndex] = useState(0);
   const [score, setScore] = useState(0);
   const [streak, setStreak] = useState(0);
-  const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
-  const [showResult, setShowResult] = useState(false);
-  const [gameOver, setGameOver] = useState(false);
-  const [runnerLane, setRunnerLane] = useState(1); // 0, 1, 2 for left, center, right
-  const [obstacleOffset, setObstacleOffset] = useState(0);
-  const [speed, setSpeed] = useState(2);
-  const [isRunning, setIsRunning] = useState(false);
-  const animationRef = useRef<number>();
+  const [lives, setLives] = useState(START_LIVES);
+  const [lane, setLane] = useState(1);
+  const [gateY, setGateY] = useState(-10);
+  const [phase, setPhase] = useState<Phase>("idle");
+  const [countdown, setCountdown] = useState(3);
+  const [picked, setPicked] = useState<number | null>(null);
+  const [correctCount, setCorrectCount] = useState(0);
+
+  const laneRef = useRef(lane);
+  const speedRef = useRef(12); // % per second
+  const rafRef = useRef<number>();
+  const touchX = useRef<number | null>(null);
   const { toast } = useToast();
   const { session } = useAuth();
 
-  const currentQuestion = questions[currentIndex];
+  laneRef.current = lane;
+  const q = questions[index];
 
   const generateQuiz = async () => {
     if (!session) {
-      toast({
-        title: "Please sign in",
-        description: "You need to be signed in to play the quiz.",
-        variant: "destructive",
-      });
+      toast({ title: "Please sign in", description: "Sign in to play the quiz.", variant: "destructive" });
       return;
     }
-
     setLoading(true);
     try {
+      const safe = content.length > 50000 ? content.substring(0, 50000) : content;
       const { data, error } = await supabase.functions.invoke("generate-quiz", {
-        body: { uploadId, content, count: 10 },
+        body: { uploadId, content: safe, count: 10 },
       });
-
       if (error) throw error;
-
-      if (data.questions) {
-        setQuestions(data.questions);
-        setCurrentIndex(0);
-        setScore(0);
-        setStreak(0);
-        setGameOver(false);
-        setIsRunning(true);
-        setSpeed(2);
-        toast({
-          title: "🏃 GO!",
-          description: "Use arrow keys or A/D to move, collect the correct answer!",
-        });
-      }
-    } catch (error) {
-      console.error("Error generating quiz:", error);
+      if (!data?.questions?.length) throw new Error("No questions were generated.");
+      setQuestions(data.questions);
+      startGame();
+    } catch (e) {
       toast({
-        title: "Failed to generate quiz",
-        description: error instanceof Error ? error.message : "Please try again.",
+        title: "Couldn't make the quiz",
+        description: e instanceof Error ? e.message : "Please try again.",
         variant: "destructive",
       });
     } finally {
@@ -81,109 +75,133 @@ export function QuizGame({ uploadId, content }: QuizGameProps) {
     }
   };
 
-  // Animation loop for the running effect
+  const startGame = () => {
+    setIndex(0);
+    setScore(0);
+    setStreak(0);
+    setLives(START_LIVES);
+    setCorrectCount(0);
+    setLane(1);
+    speedRef.current = 12;
+    setGateY(-10);
+    setPicked(null);
+    setCountdown(3);
+    setPhase("countdown");
+  };
+
+  // Countdown
   useEffect(() => {
-    if (!isRunning || showResult) return;
+    if (phase !== "countdown") return;
+    if (countdown === 0) {
+      setPhase("running");
+      return;
+    }
+    const t = setTimeout(() => setCountdown((c) => c - 1), 700);
+    return () => clearTimeout(t);
+  }, [phase, countdown]);
 
-    const animate = () => {
-      setObstacleOffset((prev) => {
-        const newOffset = prev + speed;
-        return newOffset > 100 ? 0 : newOffset;
-      });
-      animationRef.current = requestAnimationFrame(animate);
-    };
-
-    animationRef.current = requestAnimationFrame(animate);
-    return () => {
-      if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current);
-      }
-    };
-  }, [isRunning, showResult, speed]);
-
-  const handleLaneCollision = useCallback((lane: number) => {
-    if (showResult || !currentQuestion) return;
-
-    // Check which answer option is in this lane
-    const optionIndex = lane; // Lane 0 = option 0/1, lane 1 = option 1/2, lane 2 = option 2/3
-    // Map 3 lanes to 4 options: left = 0, center-left = 1, center-right = 2, right = 3
-    // Simplified: just use first 3 options for 3 lanes
-    const mappedIndex = lane;
-
-    if (mappedIndex < currentQuestion.options.length) {
-      setSelectedAnswer(mappedIndex);
-      setShowResult(true);
-
-      const isCorrect = mappedIndex === currentQuestion.correct_answer;
-      if (isCorrect) {
-        const bonus = streak >= 3 ? 50 : 0;
-        setScore((s) => s + 100 + bonus);
+  const resolve = useCallback(
+    (choice: number) => {
+      if (!q) return;
+      setPicked(choice);
+      setPhase("result");
+      const correct = choice === q.correct_answer;
+      if (correct) {
+        setScore((s) => s + 100 + streak * 20);
         setStreak((s) => s + 1);
-        setSpeed((s) => Math.min(s + 0.2, 5));
+        setCorrectCount((c) => c + 1);
+        speedRef.current = Math.min(speedRef.current + 2, 30);
       } else {
         setStreak(0);
-        setSpeed((s) => Math.max(s - 0.3, 1.5));
+        setLives((l) => l - 1);
       }
+    },
+    [q, streak]
+  );
 
-      setTimeout(() => {
-        if (currentIndex < questions.length - 1) {
-          setCurrentIndex((i) => i + 1);
-          setSelectedAnswer(null);
-          setShowResult(false);
-          setObstacleOffset(0);
-        } else {
-          setGameOver(true);
-          setIsRunning(false);
-        }
-      }, 1500);
-    }
-  }, [showResult, currentQuestion, currentIndex, questions.length, streak]);
+  // Game loop: the answer gates run toward the player
+  useEffect(() => {
+    if (phase !== "running") return;
+    let last = performance.now();
+    let y = -10;
+    setGateY(y);
+    const tick = (now: number) => {
+      const dt = (now - last) / 1000;
+      last = now;
+      y += speedRef.current * dt;
+      setGateY(y);
+      if (y >= RUNNER_Y - 6) {
+        resolve(laneRef.current);
+        return;
+      }
+      rafRef.current = requestAnimationFrame(tick);
+    };
+    rafRef.current = requestAnimationFrame(tick);
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
+  }, [phase, index, resolve]);
+
+  // After showing the result, go to the next question
+  useEffect(() => {
+    if (phase !== "result") return;
+    const t = setTimeout(() => {
+      const outOfLives = lives <= 0;
+      const lastQuestion = index >= questions.length - 1;
+      if (outOfLives || lastQuestion) {
+        setPhase("over");
+      } else {
+        setIndex((i) => i + 1);
+        setPicked(null);
+        setPhase("running");
+      }
+    }, 2200);
+    return () => clearTimeout(t);
+  }, [phase, lives, index, questions.length]);
+
+  const move = useCallback((dir: -1 | 1) => {
+    setLane((l) => Math.max(0, Math.min(LANES - 1, l + dir)));
+  }, []);
 
   // Keyboard controls
   useEffect(() => {
-    if (!isRunning) return;
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "ArrowLeft" || e.key === "a" || e.key === "A") {
-        setRunnerLane((p) => Math.max(0, p - 1));
-      } else if (e.key === "ArrowRight" || e.key === "d" || e.key === "D") {
-        setRunnerLane((p) => Math.min(2, p + 1));
-      } else if (e.key === " " || e.key === "Enter") {
-        // Collect answer in current lane
-        handleLaneCollision(runnerLane);
+    if (phase !== "running") return;
+    const onKey = (e: KeyboardEvent) => {
+      if (["ArrowLeft", "a", "A"].includes(e.key)) {
+        e.preventDefault();
+        move(-1);
+      } else if (["ArrowRight", "d", "D"].includes(e.key)) {
+        e.preventDefault();
+        move(1);
+      } else if (["1", "2", "3", "4"].includes(e.key)) {
+        setLane(Number(e.key) - 1);
       }
     };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [phase, move]);
 
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isRunning, runnerLane, handleLaneCollision]);
+  // ---------- Screens ----------
 
-  if (questions.length === 0) {
+  if (phase === "idle" || questions.length === 0) {
     return (
       <div className="text-center py-12 space-y-4">
-        <div className="w-20 h-20 mx-auto rounded-full bg-accent/10 flex items-center justify-center animate-pulse">
+        <div className="w-20 h-20 mx-auto rounded-full bg-accent/10 flex items-center justify-center">
           <Gamepad2 className="w-10 h-10 text-accent" />
         </div>
         <h3 className="font-display text-xl font-semibold">Runner Quiz Game</h3>
         <p className="text-muted-foreground max-w-md mx-auto">
-          Race through questions! Use arrow keys to switch lanes and collect the
-          correct answers. Build streaks for bonus points!
+          Answers come running at you. Switch to the lane with the right answer before you hit it.
+          You have 3 lives — build streaks for bonus points!
         </p>
-        <Button
-          onClick={generateQuiz}
-          disabled={loading}
-          variant="accent"
-          className="mt-4"
-        >
+        <Button onClick={generateQuiz} disabled={loading} variant="accent" className="mt-4">
           {loading ? (
             <>
-              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              Generating questions...
+              <Loader2 className="w-4 h-4 animate-spin" /> Making your questions...
             </>
           ) : (
             <>
-              <Gamepad2 className="w-4 h-4 mr-2" />
-              Start Running!
+              <Gamepad2 className="w-4 h-4" /> Start Running!
             </>
           )}
         </Button>
@@ -191,187 +209,173 @@ export function QuizGame({ uploadId, content }: QuizGameProps) {
     );
   }
 
-  if (gameOver) {
-    const percentage = Math.round((score / (questions.length * 100)) * 100);
+  if (phase === "over") {
     return (
-      <div className="text-center py-12 space-y-6">
-        <div className="w-24 h-24 mx-auto rounded-full bg-gradient-to-br from-yellow-400 to-amber-600 flex items-center justify-center animate-bounce">
-          <Trophy className="w-12 h-12 text-white" />
+      <div className="text-center py-12 space-y-5">
+        <div className="w-24 h-24 mx-auto rounded-full bg-gradient-primary flex items-center justify-center">
+          <Trophy className="w-12 h-12 text-primary-foreground" />
         </div>
-        <h3 className="font-display text-3xl font-bold">Finish Line!</h3>
-        <div className="text-6xl font-display font-bold text-gradient-primary">
-          {score}
-        </div>
+        <h3 className="font-display text-3xl font-bold">{lives <= 0 ? "Out of lives!" : "Finish line!"}</h3>
+        <div className="text-6xl font-display font-bold text-gradient-primary">{score}</div>
         <p className="text-muted-foreground">
-          {percentage >= 80 ? "🔥 Amazing run!" : percentage >= 50 ? "👍 Good effort!" : "💪 Keep practicing!"}
+          {correctCount} of {index + 1} answered correctly
         </p>
-        <p className="text-sm text-muted-foreground">
-          {score} points out of {questions.length * 100} possible
-        </p>
-        <Button onClick={() => { setQuestions([]); }} variant="outline">
-          Run Again
-        </Button>
+        <div className="flex gap-3 justify-center">
+          <Button onClick={startGame} variant="accent">Run again</Button>
+          <Button onClick={() => { setQuestions([]); setPhase("idle"); }} variant="outline">
+            New questions
+          </Button>
+        </div>
       </div>
     );
   }
 
+  const laneWidth = 100 / LANES;
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 select-none">
       {/* HUD */}
-      <div className="flex justify-between items-center px-2">
-        <div className="flex items-center gap-4">
-          <div className="font-display text-2xl font-bold text-gradient-primary">
-            {score}
-          </div>
+      <div className="flex justify-between items-center px-1">
+        <div className="flex items-center gap-3">
+          <span className="font-display text-2xl font-bold text-gradient-primary">{score}</span>
           {streak >= 2 && (
-            <div className="flex items-center gap-1 text-accent animate-pulse">
-              <Zap className="w-4 h-4" />
-              <span className="text-sm font-bold">x{streak}</span>
-            </div>
+            <span className="flex items-center gap-1 text-accent text-sm font-bold">
+              <Zap className="w-4 h-4" /> x{streak}
+            </span>
           )}
         </div>
-        <div className="text-muted-foreground text-sm">
-          Q{currentIndex + 1}/{questions.length}
+        <div className="flex items-center gap-1">
+          {Array.from({ length: START_LIVES }).map((_, i) => (
+            <Heart
+              key={i}
+              className={cn("w-5 h-5", i < lives ? "text-destructive fill-destructive" : "text-muted-foreground")}
+            />
+          ))}
         </div>
+        <span className="text-sm text-muted-foreground">
+          Q{index + 1}/{questions.length}
+        </span>
       </div>
 
       {/* Question */}
-      <div className="bg-card/80 backdrop-blur rounded-lg p-3 border border-border/50">
-        <h3 className="font-display text-lg font-semibold text-center">
-          {currentQuestion.question}
-        </h3>
+      <div className="bg-card rounded-lg p-3 border border-border">
+        <h3 className="font-display text-base md:text-lg font-semibold text-center">{q.question}</h3>
       </div>
 
-      {/* Game Track */}
-      <div className="relative h-[320px] rounded-xl overflow-hidden border border-border/50 bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900">
-        {/* Road lines animation */}
-        <div className="absolute inset-0 overflow-hidden">
-          {[...Array(8)].map((_, i) => (
+      {/* Track */}
+      <div
+        className="relative h-[380px] rounded-xl overflow-hidden border border-border bg-foreground/90 touch-none"
+        onTouchStart={(e) => (touchX.current = e.touches[0].clientX)}
+        onTouchEnd={(e) => {
+          if (touchX.current === null) return;
+          const dx = e.changedTouches[0].clientX - touchX.current;
+          if (Math.abs(dx) > 30) move(dx > 0 ? 1 : -1);
+          touchX.current = null;
+        }}
+      >
+        {/* Lanes */}
+        <div className="absolute inset-0 flex">
+          {Array.from({ length: LANES }).map((_, i) => (
             <div
               key={i}
-              className="absolute left-1/2 w-2 h-8 bg-yellow-500/60 rounded"
-              style={{
-                transform: `translateX(-50%)`,
-                top: `${((i * 50 + obstacleOffset * 4) % 400) - 50}px`,
-                opacity: 0.6,
-              }}
+              onClick={() => phase === "running" && setLane(i)}
+              className={cn(
+                "flex-1 border-r border-background/10 last:border-r-0 transition-colors cursor-pointer",
+                lane === i && "bg-primary/15"
+              )}
             />
           ))}
         </div>
 
-        {/* Lane dividers */}
-        <div className="absolute inset-0 flex">
-          <div className="flex-1 border-r border-white/10" />
-          <div className="flex-1 border-r border-white/10" />
-          <div className="flex-1" />
-        </div>
-
-        {/* Answer obstacles coming toward player */}
-        <div 
-          className="absolute left-0 right-0 flex gap-2 px-2 transition-all duration-100"
-          style={{ 
-            top: `${Math.min(obstacleOffset * 2.5, 180)}px`,
-            opacity: obstacleOffset > 10 ? 1 : 0,
-          }}
-        >
-          {currentQuestion.options.slice(0, 3).map((option, index) => {
-            const isCorrect = index === currentQuestion.correct_answer;
-            const isSelected = selectedAnswer === index;
-
-            return (
-              <div
-                key={index}
-                onClick={() => handleLaneCollision(index)}
-                className={cn(
-                  "flex-1 p-3 rounded-lg cursor-pointer transition-all text-center",
-                  "transform hover:scale-105",
-                  showResult
-                    ? isCorrect
-                      ? "bg-green-500/90 text-white ring-2 ring-green-400"
-                      : isSelected
-                      ? "bg-red-500/90 text-white ring-2 ring-red-400"
-                      : "bg-slate-700/80 text-slate-400"
-                    : "bg-primary/80 hover:bg-primary text-primary-foreground"
-                )}
-              >
-                <span className="text-xs font-medium line-clamp-2">{option}</span>
-                {showResult && isCorrect && <Check className="w-4 h-4 mx-auto mt-1" />}
-                {showResult && isSelected && !isCorrect && <X className="w-4 h-4 mx-auto mt-1" />}
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Runner character */}
+        {/* Moving road marks */}
         <div
-          className="absolute bottom-8 transition-all duration-150 ease-out"
+          className="absolute inset-0 pointer-events-none opacity-30"
           style={{
-            left: `${runnerLane * 33.33 + 16.66}%`,
-            transform: "translateX(-50%)",
+            backgroundImage:
+              "repeating-linear-gradient(to bottom, hsl(var(--background)) 0 18px, transparent 18px 60px)",
+            backgroundSize: `2px 60px`,
+            backgroundRepeat: "repeat-y",
+            backgroundPosition: `center ${(gateY * 8) % 60}px`,
           }}
-        >
-          <div className={cn(
-            "w-12 h-16 rounded-lg flex flex-col items-center justify-center",
-            "bg-gradient-to-b from-accent to-accent/80 shadow-lg shadow-accent/40",
-            isRunning && !showResult && "animate-bounce"
-          )}>
-            <div className="w-6 h-6 rounded-full bg-white/90 mb-1" />
-            <div className="w-8 h-6 rounded-t-lg bg-white/20" />
+        />
+
+        {/* Answer gates */}
+        {phase !== "countdown" && (
+          <div
+            className="absolute left-0 right-0 flex px-1 gap-1 pointer-events-none"
+            style={{ top: `${gateY}%` }}
+          >
+            {q.options.slice(0, LANES).map((opt, i) => {
+              const isCorrect = i === q.correct_answer;
+              const isPicked = picked === i;
+              return (
+                <div
+                  key={i}
+                  className={cn(
+                    "flex-1 min-h-[56px] rounded-lg p-2 text-center text-[11px] md:text-xs font-medium flex items-center justify-center border-2 transition-colors",
+                    phase === "result"
+                      ? isCorrect
+                        ? "bg-success text-success-foreground border-success"
+                        : isPicked
+                        ? "bg-destructive text-destructive-foreground border-destructive"
+                        : "bg-muted text-muted-foreground border-transparent opacity-50"
+                      : "bg-card text-card-foreground border-primary/60"
+                  )}
+                  style={{ width: `${laneWidth}%` }}
+                >
+                  <span className="line-clamp-3">{opt}</span>
+                </div>
+              );
+            })}
           </div>
-          {/* Speed trail */}
-          <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 flex gap-0.5">
-            {[...Array(3)].map((_, i) => (
-              <div 
-                key={i} 
-                className="w-1 bg-accent/40 rounded animate-pulse"
-                style={{ height: `${12 - i * 3}px`, animationDelay: `${i * 100}ms` }}
-              />
-            ))}
+        )}
+
+        {/* Runner */}
+        <div
+          className="absolute -translate-x-1/2 transition-[left] duration-150 ease-out pointer-events-none"
+          style={{ left: `${lane * laneWidth + laneWidth / 2}%`, top: `${RUNNER_Y}%` }}
+        >
+          <div
+            className={cn(
+              "w-10 h-14 rounded-xl bg-gradient-accent shadow-lg flex flex-col items-center pt-1.5",
+              phase === "running" && "animate-bounce"
+            )}
+          >
+            <div className="w-5 h-5 rounded-full bg-background" />
           </div>
         </div>
 
-        {/* Fourth option at bottom if exists */}
-        {currentQuestion.options.length > 3 && (
-          <div 
-            className="absolute bottom-24 left-1/2 -translate-x-1/2"
-            style={{ 
-              opacity: obstacleOffset > 30 ? 1 : 0,
-            }}
-          >
-            <div
-              onClick={() => {
-                setRunnerLane(1);
-                setTimeout(() => handleLaneCollision(3), 100);
-              }}
-              className={cn(
-                "px-4 py-2 rounded-lg cursor-pointer transition-all text-center",
-                showResult
-                  ? currentQuestion.correct_answer === 3
-                    ? "bg-green-500/90 text-white"
-                    : selectedAnswer === 3
-                    ? "bg-red-500/90 text-white"
-                    : "bg-slate-700/80 text-slate-400"
-                  : "bg-secondary/80 hover:bg-secondary text-secondary-foreground"
-              )}
-            >
-              <span className="text-xs font-medium">{currentQuestion.options[3]}</span>
-            </div>
+        {/* Countdown overlay */}
+        {phase === "countdown" && (
+          <div className="absolute inset-0 flex items-center justify-center bg-foreground/60">
+            <span className="font-display text-7xl font-bold text-background">
+              {countdown === 0 ? "GO!" : countdown}
+            </span>
           </div>
         )}
       </div>
 
-      {/* Explanation */}
-      {showResult && (
-        <div className="p-3 bg-muted/50 rounded-lg border border-border/50 animate-in fade-in slide-in-from-bottom-2">
-          <p className="text-sm text-muted-foreground">
-            <strong className="text-foreground">💡</strong> {currentQuestion.explanation}
+      {/* Mobile controls */}
+      <div className="flex gap-3 md:hidden">
+        <Button variant="outline" size="lg" className="flex-1" onClick={() => move(-1)}>
+          <ChevronLeft className="w-6 h-6" />
+        </Button>
+        <Button variant="outline" size="lg" className="flex-1" onClick={() => move(1)}>
+          <ChevronRight className="w-6 h-6" />
+        </Button>
+      </div>
+
+      {phase === "result" && (
+        <div className="p-3 bg-muted rounded-lg border border-border">
+          <p className="text-sm">
+            <strong>{picked === q.correct_answer ? "Correct! " : "Not quite. "}</strong>
+            <span className="text-muted-foreground">{q.explanation}</span>
           </p>
         </div>
       )}
 
-      {/* Controls hint */}
       <p className="text-xs text-center text-muted-foreground">
-        ← → or A/D to move • Space/Enter to collect • Click answers directly
+        ← → or A/D to switch lanes • 1–4 to jump to a lane • Swipe or tap a lane on phones
       </p>
     </div>
   );
