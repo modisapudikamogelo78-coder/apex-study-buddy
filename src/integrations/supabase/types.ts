@@ -14,6 +14,112 @@ export type Database = {
   }
   public: {
     Tables: {
+      podcast_episodes: {
+        Row: {
+          created_at: string
+          id: string
+          status: string
+          title: string
+          updated_at: string
+          upload_id: string | null
+          user_id: string
+          visual_style: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          status?: string
+          title: string
+          updated_at?: string
+          upload_id?: string | null
+          user_id: string
+          visual_style?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          status?: string
+          title?: string
+          updated_at?: string
+          upload_id?: string | null
+          user_id?: string
+          visual_style?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "podcast_episodes_upload_id_fkey"
+            columns: ["upload_id"]
+            isOneToOne: false
+            referencedRelation: "uploads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      podcast_segments: {
+        Row: {
+          concept_title: string
+          created_at: string
+          duration_seconds: number
+          episode_id: string
+          error_message: string | null
+          host_dialogue: string
+          id: string
+          key_takeaway: string
+          seed: number
+          segment_order: number
+          status: string
+          updated_at: string
+          user_id: string
+          veo_cinematic_prompt: string
+          video_job_id: string | null
+          video_path: string | null
+        }
+        Insert: {
+          concept_title: string
+          created_at?: string
+          duration_seconds?: number
+          episode_id: string
+          error_message?: string | null
+          host_dialogue: string
+          id?: string
+          key_takeaway: string
+          seed: number
+          segment_order: number
+          status?: string
+          updated_at?: string
+          user_id: string
+          veo_cinematic_prompt: string
+          video_job_id?: string | null
+          video_path?: string | null
+        }
+        Update: {
+          concept_title?: string
+          created_at?: string
+          duration_seconds?: number
+          episode_id?: string
+          error_message?: string | null
+          host_dialogue?: string
+          id?: string
+          key_takeaway?: string
+          seed?: number
+          segment_order?: number
+          status?: string
+          updated_at?: string
+          user_id?: string
+          veo_cinematic_prompt?: string
+          video_job_id?: string | null
+          video_path?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "podcast_segments_episode_id_fkey"
+            columns: ["episode_id"]
+            isOneToOne: false
+            referencedRelation: "podcast_episodes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       question_papers: {
         Row: {
           content: Json
