@@ -3,7 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 
 const GATEWAY_URL = "https://ai.gateway.lovable.dev/v1";
-const SCRIPT_MODEL = "google/gemini-3.5-flash";
+const SCRIPT_MODEL = "openai/gpt-6-astra";
 const VIDEO_MODEL = "google/veo-3.1-fast";
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -116,7 +116,7 @@ Study material:\n${content.trim()}`;
         },
       };
 
-      const aiResponse = await fetch(`${GATEWAY_URL}/chat/completions`, {
+      const aiResponse = await fetch(`${GATEWAY_URL}/responses`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${apiKey}`,
@@ -125,12 +125,14 @@ Study material:\n${content.trim()}`;
         },
         body: JSON.stringify({
           model: SCRIPT_MODEL,
-          messages: [{ role: "user", content: prompt }],
-          response_format: { type: "json_schema", json_schema: schema },
+          input: [{ role: "user", content: [{ type: "input_text", text: prompt }] }],
+          reasoning: { effort: "low" },
+          store: false,
+          text: { format: { type: "json_schema", name: schema.name, strict: true, schema: schema.schema } },
         }),
       });
-      const aiData = await gatewayJson(aiResponse) as { choices?: Array<{ message?: { content?: string } }> };
-      const raw = aiData.choices?.[0]?.message?.content;
+      const aiData = await gatewayJson(aiResponse) as { output?: Array<{ type?: string; content?: Array<{ type?: string; text?: string }> }> };
+      const raw = aiData.output?.flatMap((item) => item.content ?? []).find((item) => item.type === "output_text")?.text;
       if (!raw) return jsonResponse({ error: "The podcast script could not be created" }, 502);
       const parsed = JSON.parse(raw) as { segments?: PodcastSegment[] };
       if (!Array.isArray(parsed.segments) || parsed.segments.length !== 4) return jsonResponse({ error: "The podcast script was incomplete" }, 502);

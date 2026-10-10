@@ -2,10 +2,11 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
-import { Video, Gamepad2, FileQuestion, Upload, LogOut, ArrowLeft } from "lucide-react";
+import { Video, Gamepad2, FileQuestion, LogOut, ArrowLeft, Clapperboard } from "lucide-react";
 import { VideoPodcast } from "@/components/VideoPodcast";
 import { QuizGame } from "@/components/QuizGame";
 import { QuestionPaper } from "@/components/QuestionPaper";
+import { CreatePodcast } from "@/components/CreatePodcast";
 import { useAuth } from "@/hooks/useAuth";
 
 interface Upload {
@@ -20,7 +21,7 @@ interface DashboardProps {
 }
 
 export function Dashboard({ upload, onBack }: DashboardProps) {
-  const [activeTab, setActiveTab] = useState("video");
+  const [activeTab, setActiveTab] = useState("podcast");
   const { user, signOut } = useAuth();
 
   return (
@@ -54,10 +55,14 @@ export function Dashboard({ upload, onBack }: DashboardProps) {
       {/* Main content */}
       <main className="container px-4 py-8">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid w-full max-w-lg mx-auto grid-cols-3 h-14">
+          <TabsList className="grid w-full max-w-2xl mx-auto grid-cols-4 h-14">
+            <TabsTrigger value="podcast" className="flex gap-2 data-[state=active]:bg-primary/20">
+              <Clapperboard className="w-4 h-4" />
+              <span className="hidden sm:inline">Podcast</span>
+            </TabsTrigger>
             <TabsTrigger value="video" className="flex gap-2 data-[state=active]:bg-primary/20">
               <Video className="w-4 h-4" />
-              <span className="hidden sm:inline">Video</span>
+              <span className="hidden sm:inline">Conversation</span>
             </TabsTrigger>
             <TabsTrigger value="quiz" className="flex gap-2 data-[state=active]:bg-accent/20">
               <Gamepad2 className="w-4 h-4" />
@@ -70,6 +75,12 @@ export function Dashboard({ upload, onBack }: DashboardProps) {
           </TabsList>
 
           <div className="max-w-4xl mx-auto">
+            <TabsContent value="podcast" className="mt-0">
+              <div className="bg-card border border-border/50 rounded-xl p-6">
+                <CreatePodcast uploadId={upload.id} content={upload.content} />
+              </div>
+            </TabsContent>
+
             <TabsContent value="video" className="mt-0">
               <div className="bg-card border border-border/50 rounded-xl p-6">
                 <VideoPodcast uploadId={upload.id} content={upload.content} />
