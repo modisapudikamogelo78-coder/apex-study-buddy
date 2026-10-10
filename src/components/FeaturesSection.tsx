@@ -1,18 +1,31 @@
 import { FeatureCard } from "./FeatureCard";
-import { Video, Gamepad2, FileQuestion } from "lucide-react";
+import { Clapperboard, Video, Gamepad2, FileQuestion } from "lucide-react";
 
 export const FeaturesSection = () => {
   const features = [
     {
-      icon: <Video className="w-7 h-7" />,
-      title: "Video Conversations",
-      description: "Watch two AI hosts naturally discuss and explain your notes, making complex topics easy to understand.",
+      icon: <Clapperboard className="w-7 h-7" />,
+      title: "Create Podcast",
+      description: "Turn your notes into a two-host visual micro-podcast with cinematic vertical scenes and synchronized sound design.",
       gradient: "primary" as const,
       features: [
-        "Natural dialogue format",
-        "Key concepts highlighted",
-        "Downloadable MP4",
-        "Perfect for visual learners",
+        "Natural two-host dialogue",
+        "Vertical cinematic scenes",
+        "Key takeaway overlays",
+        "Mobile-first learning feed",
+      ],
+      buttonText: "Create Podcast",
+    },
+    {
+      icon: <Video className="w-7 h-7" />,
+      title: "Video Conversation",
+      description: "Talk live with an AI study host who explains your notes and answers questions in real time.",
+      gradient: "primary" as const,
+      features: [
+        "Interactive video call",
+        "Ask follow-up questions",
+        "Personalized explanations",
+        "Powered by Beyond Presence",
       ],
       buttonText: "Generate Video",
     },
@@ -49,18 +62,18 @@ export const FeaturesSection = () => {
       <div className="container px-4">
         <div className="text-center mb-16">
           <span className="inline-block px-4 py-1.5 rounded-full bg-primary/10 text-primary text-sm font-medium mb-4">
-            Three Powerful Outputs
+            Four Powerful Outputs
           </span>
           <h2 className="font-display text-3xl md:text-5xl font-bold mb-4">
-            One Upload, <span className="text-gradient-accent">Three Ways</span> to Learn
+            One Upload, <span className="text-gradient-accent">Four Ways</span> to Learn
           </h2>
           <p className="text-muted-foreground max-w-2xl mx-auto">
-            Your notes transform into video lessons, interactive games, and practice tests —
+            Your notes transform into visual podcasts, live conversations, interactive games, and practice tests —
             everything you need to understand, test, and revise.
           </p>
         </div>
 
-        <div className="grid md:grid-cols-3 gap-6 lg:gap-8">
+        <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-6">
           {features.map((feature, i) => (
             <FeatureCard key={i} {...feature} delay={i * 0.15} />
           ))}

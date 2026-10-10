@@ -181,7 +181,7 @@ export const UploadSection = ({ onUploadComplete }: UploadSectionProps) => {
             </h2>
             <p className="text-muted-foreground max-w-xl mx-auto">
               Drop a PDF, paste text, or upload any study material. Our AI transforms it into 
-              three powerful learning experiences.
+              four powerful learning experiences.
             </p>
           </div>
 
