@@ -1,22 +1,17 @@
 import { useEffect, useRef, useState } from "react";
-import { Clapperboard, Film, Loader2, Play, Sparkles, Volume2 } from "lucide-react";
+import { Clapperboard, Loader2, Mic, Users, Video } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 
-type PodcastSegment = {
+type PodcastPart = {
   id: string;
   segment_order: number;
   concept_title: string;
   host_dialogue: string;
-  key_takeaway: string;
-  status: string;
-  error_message: string | null;
 };
-
-type JobState = { progress: number; videoUrl?: string; error?: string };
 
 interface CreatePodcastProps {
   uploadId: string;
@@ -25,15 +20,17 @@ interface CreatePodcastProps {
 
 export function CreatePodcast({ uploadId, content }: CreatePodcastProps) {
   const [creatingScript, setCreatingScript] = useState(false);
-  const [segments, setSegments] = useState<PodcastSegment[]>([]);
-  const [jobs, setJobs] = useState<Record<string, JobState>>({});
-  const polling = useRef<Record<string, number>>({});
+  const [parts, setParts] = useState<PodcastPart[]>([]);
+  const [doneParts, setDoneParts] = useState(0);
+  const [partProgress, setPartProgress] = useState(0);
+  const [generating, setGenerating] = useState(false);
+  const [videoUrl, setVideoUrl] = useState<string>();
+  const [error, setError] = useState<string>();
+  const cancelled = useRef(false);
   const { session } = useAuth();
   const { toast } = useToast();
 
-  useEffect(() => () => {
-    Object.values(polling.current).forEach(window.clearTimeout);
-  }, []);
+  useEffect(() => () => { cancelled.current = true; }, []);
 
   const invoke = async (body: Record<string, unknown>) => {
     const { data, error } = await supabase.functions.invoke("generate-podcast", { body });
@@ -42,117 +39,129 @@ export function CreatePodcast({ uploadId, content }: CreatePodcastProps) {
       const details = response instanceof Response ? await response.json().catch(() => null) as { error?: string } | null : null;
       throw new Error(details?.error ?? error.message);
     }
-    if (data?.error) throw new Error(data.error);
+    if (data?.error && typeof data.error === "string") throw new Error(data.error);
     return data;
   };
 
   const createScript = async () => {
     if (!session) {
-      toast({ title: "Please sign in", description: "Sign in to create a visual podcast.", variant: "destructive" });
+      toast({ title: "Please sign in", description: "Sign in to create a podcast.", variant: "destructive" });
       return;
     }
     setCreatingScript(true);
     try {
       const data = await invoke({ action: "create_script", uploadId, content: content.slice(0, 50_000) });
-      setSegments(data.segments ?? []);
-      setJobs({});
-      toast({ title: "Podcast storyboard ready", description: "Generate each cinematic scene when you are ready." });
-    } catch (error) {
-      toast({ title: "Could not create podcast", description: error instanceof Error ? error.message : "Please try again.", variant: "destructive" });
+      setParts(data.segments ?? []);
+      setDoneParts(0);
+      setVideoUrl(undefined);
+      setError(undefined);
+    } catch (e) {
+      toast({ title: "Could not write the podcast", description: e instanceof Error ? e.message : "Please try again.", variant: "destructive" });
     } finally {
       setCreatingScript(false);
     }
   };
 
-  const poll = async (segmentId: string) => {
+  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  // One click builds the whole video: each part extends the previous one, strictly in order.
+  const generateVideo = async () => {
+    setGenerating(true);
+    setError(undefined);
     try {
-      const data = await invoke({ action: "video_status", segmentId });
-      const message = data.error?.message as string | undefined;
-      setJobs((current) => ({ ...current, [segmentId]: { progress: data.progress ?? current[segmentId]?.progress ?? 5, videoUrl: data.videoUrl, error: message } }));
-      if (data.status === "completed" || data.status === "failed") return;
-      polling.current[segmentId] = window.setTimeout(() => void poll(segmentId), 7_000);
-    } catch (error) {
-      setJobs((current) => ({ ...current, [segmentId]: { progress: current[segmentId]?.progress ?? 0, error: error instanceof Error ? error.message : "Generation failed" } }));
+      for (let i = doneParts; i < parts.length; i++) {
+        if (cancelled.current) return;
+        setPartProgress(2);
+        await invoke({ action: "create_video", segmentId: parts[i].id });
+        for (;;) {
+          await wait(8_000);
+          if (cancelled.current) return;
+          const status = await invoke({ action: "video_status", segmentId: parts[i].id });
+          if (status.status === "failed") throw new Error(status.error?.message ?? "Video generation failed");
+          if (status.status === "completed") {
+            setVideoUrl(status.videoUrl);
+            setDoneParts(i + 1);
+            break;
+          }
+          setPartProgress(status.progress ?? 5);
+        }
+      }
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Video generation failed";
+      setError(message);
+      toast({ title: "Video paused", description: message, variant: "destructive" });
+    } finally {
+      setGenerating(false);
     }
   };
 
-  const generateScene = async (segmentId: string) => {
-    setJobs((current) => ({ ...current, [segmentId]: { progress: 2 } }));
-    try {
-      await invoke({ action: "create_video", segmentId });
-      void poll(segmentId);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Generation failed";
-      setJobs((current) => ({ ...current, [segmentId]: { progress: 0, error: message } }));
-      toast({ title: "Could not generate scene", description: message, variant: "destructive" });
-    }
-  };
-
-  if (segments.length === 0) {
+  if (parts.length === 0) {
     return (
       <div className="py-10 text-center">
         <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-xl bg-primary/10 text-primary">
-          <Clapperboard className="h-8 w-8" />
+          <Mic className="h-8 w-8" />
         </div>
-        <h2 className="font-display text-2xl font-bold">Create a visual podcast</h2>
+        <h2 className="font-display text-2xl font-bold">Create a video podcast</h2>
         <p className="mx-auto mt-3 max-w-xl text-muted-foreground">
-          Turn your notes into a two-host educational conversation with a cinematic vertical scene for every key idea.
+          Get one video of two hosts having a natural conversation that explains your notes.
         </p>
         <div className="mx-auto mt-6 grid max-w-xl grid-cols-3 gap-3 text-left text-sm">
-          <div className="rounded-lg border border-border bg-secondary/50 p-3"><Sparkles className="mb-2 h-4 w-4 text-primary" />Two-host script</div>
-          <div className="rounded-lg border border-border bg-secondary/50 p-3"><Film className="mb-2 h-4 w-4 text-accent" />9:16 cinematic scenes</div>
-          <div className="rounded-lg border border-border bg-secondary/50 p-3"><Volume2 className="mb-2 h-4 w-4 text-success" />Generated sound design</div>
+          <div className="rounded-lg border border-border bg-secondary/50 p-3"><Users className="mb-2 h-4 w-4 text-primary" />Two hosts</div>
+          <div className="rounded-lg border border-border bg-secondary/50 p-3"><Clapperboard className="mb-2 h-4 w-4 text-accent" />One full script</div>
+          <div className="rounded-lg border border-border bg-secondary/50 p-3"><Video className="mb-2 h-4 w-4 text-success" />One video</div>
         </div>
         <Button className="mt-7" onClick={createScript} disabled={creatingScript}>
-          {creatingScript ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Clapperboard className="mr-2 h-4 w-4" />}
-          {creatingScript ? "Designing episode..." : "Create Podcast"}
+          {creatingScript ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Mic className="mr-2 h-4 w-4" />}
+          {creatingScript ? "Writing the conversation..." : "Create Podcast"}
         </Button>
       </div>
     );
   }
 
+  const finished = doneParts === parts.length;
+  const overall = ((doneParts + (generating ? partProgress / 100 : 0)) / parts.length) * 100;
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-4 border-b border-border pb-5">
         <div>
-          <p className="text-sm font-medium text-primary">Visual podcast storyboard</p>
-          <h2 className="font-display text-2xl font-bold">Four cinematic learning scenes</h2>
+          <p className="text-sm font-medium text-primary">Video podcast</p>
+          <h2 className="font-display text-2xl font-bold">{parts[0].concept_title}</h2>
         </div>
-        <Button variant="outline" size="sm" onClick={createScript} disabled={creatingScript}>New storyboard</Button>
+        <Button variant="outline" size="sm" onClick={createScript} disabled={creatingScript || generating}>New script</Button>
       </div>
 
-      <div className="grid gap-5 md:grid-cols-2">
-        {segments.map((segment) => {
-          const job = jobs[segment.id];
-          const isGenerating = Boolean(job && !job.videoUrl && !job.error);
-          return (
-            <article key={segment.id} className="overflow-hidden rounded-lg border border-border bg-secondary/30">
-              <div className="relative aspect-[9/16] max-h-[540px] bg-muted">
-                {job?.videoUrl ? (
-                  <video src={job.videoUrl} className="h-full w-full object-cover" controls playsInline loop />
-                ) : (
-                  <div className="flex h-full flex-col items-center justify-center p-8 text-center">
-                    {isGenerating ? <Loader2 className="h-9 w-9 animate-spin text-primary" /> : <Play className="h-9 w-9 text-muted-foreground" />}
-                    <p className="mt-4 font-display text-lg font-semibold">Scene {segment.segment_order}</p>
-                    <p className="mt-1 text-sm text-muted-foreground">{isGenerating ? "Veo is creating your clip" : "Ready for cinematic generation"}</p>
-                    {isGenerating && <Progress value={Math.max(5, job.progress)} className="mt-5 h-2 max-w-48" />}
-                  </div>
-                )}
-              </div>
-              <div className="space-y-3 p-4">
-                <h3 className="font-display text-lg font-bold">{segment.concept_title}</h3>
-                <p className="line-clamp-4 whitespace-pre-line text-sm text-muted-foreground">{segment.host_dialogue}</p>
-                <p className="border-l-2 border-primary pl-3 text-sm font-medium">{segment.key_takeaway}</p>
-                {job?.error && <p className="text-sm text-destructive">{job.error}</p>}
-                {!job?.videoUrl && !isGenerating && (
-                  <Button className="w-full" size="sm" onClick={() => generateScene(segment.id)}>
-                    <Film className="mr-2 h-4 w-4" />Generate scene
-                  </Button>
-                )}
-              </div>
-            </article>
-          );
-        })}
+      <div className="relative aspect-video overflow-hidden rounded-lg border border-border bg-muted">
+        {videoUrl && (finished || !generating) ? (
+          <video key={videoUrl} src={videoUrl} className="h-full w-full object-cover" controls playsInline />
+        ) : (
+          <div className="flex h-full flex-col items-center justify-center p-8 text-center">
+            {generating ? <Loader2 className="h-9 w-9 animate-spin text-primary" /> : <Video className="h-9 w-9 text-muted-foreground" />}
+            <p className="mt-4 font-display text-lg font-semibold">
+              {generating ? `Filming your podcast… part ${doneParts + 1} of ${parts.length}` : "Your script is ready"}
+            </p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {generating ? "This takes a few minutes. Keep this page open." : "Generate it as one continuous video."}
+            </p>
+            {generating && <Progress value={Math.max(3, overall)} className="mt-5 h-2 max-w-64" />}
+          </div>
+        )}
+      </div>
+
+      {error && <p className="text-sm text-destructive">{error}</p>}
+      {!finished && !generating && (
+        <Button className="w-full" onClick={generateVideo}>
+          <Video className="mr-2 h-4 w-4" />{doneParts > 0 ? "Continue generating video" : "Generate podcast video"}
+        </Button>
+      )}
+
+      <div className="rounded-lg border border-border bg-secondary/30 p-5">
+        <h3 className="mb-3 font-display text-lg font-bold">Full script</h3>
+        <div className="space-y-2 text-sm">
+          {parts.flatMap((p) => p.host_dialogue.split("\n")).map((line, i) => (
+            <p key={i} className={line.startsWith("Host A") ? "text-muted-foreground" : ""}>{line}</p>
+          ))}
+        </div>
       </div>
     </div>
   );
