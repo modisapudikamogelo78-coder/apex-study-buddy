@@ -1,2 +1,2 @@
 - Keep generated podcast videos in the private `podcast-videos` bucket and expose only short-lived signed URLs, because learning materials and generated media are user-owned.
-- Generate Veo podcast scenes sequentially from explicit user actions, because video jobs are expensive and concurrency-limited.
+- Generate the podcast as one video by extending parts sequentially from explicit user actions, because video jobs are expensive and concurrency-limited.
