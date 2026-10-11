@@ -6,11 +6,11 @@ export const FeaturesSection = () => {
     {
       icon: <Clapperboard className="w-7 h-7" />,
       title: "Create Podcast",
-      description: "Turn your notes into a two-host visual micro-podcast with cinematic vertical scenes and synchronized sound design.",
+      description: "Turn your notes into one video podcast of two hosts discussing your notes in a natural conversation.",
       gradient: "primary" as const,
       features: [
         "Natural two-host dialogue",
-        "Vertical cinematic scenes",
+        "One continuous video",
         "Key takeaway overlays",
         "Mobile-first learning feed",
       ],
